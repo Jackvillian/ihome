@@ -1,0 +1,166 @@
+#include <SPI.h>                                         
+#include <nRF24L01.h>                                     
+#include <RF24.h> 
+#include "printf.h"
+RF24  radio(9, 10);  
+// Создаём объект radio для работы с библиотекой RF24, указывая номера выводов nRF24L01+ (CE, CSN)
+int LedPin=8;
+uint64_t master_address[1]={'0x1234567890LL'};
+uint64_t address[7]={'0x1000110000LL','0x1000120000LL','0x1000130000LL','0x1000140000LL','0x1000150000LL','0x1000160000LL','0x1000170000LL'};
+int write_arg=255;
+int status_arg=128;
+int any=0;
+
+void setup() {
+  Serial.begin(9600); 
+  radio.begin();
+  printf_begin();
+  //radio.setAutoAck(true);
+  //radio.enableAckPayload();
+  //radio.enableDynamicPayloads();
+  radio.setChannel(0);                                  // Указываем канал передачи данных (от 0 до 127), 5 - значит передача данных осуществляется на частоте 2,405 ГГц (на одном канале может быть только 1 приёмник и до 6 передатчиков)
+  radio.setDataRate     (RF24_250KBPS);                   // Указываем скорость передачи данных (RF24_250KBPS, RF24_1MBPS, RF24_2MBPS), RF24_1MBPS - 1Мбит/сек
+  radio.setPALevel      (RF24_PA_HIGH);                 // Указываем мощность передатчика (RF24_PA_MIN=-18dBm, RF24_PA_LOW=-12dBm, RF24_PA_HIGH=-6dBm, RF24_PA_MAX=0dBm)
+  Serial.println("Radio Staring .. ");
+  if(radio.isChipConnected()==1){
+  Serial.println("Chip Is Connected");
+  }else{
+  Serial.println("Chip Is Not Connected"); 
+  }
+  pinMode(LedPin, OUTPUT);
+  digitalWrite(LedPin,HIGH); 
+  delay(200);
+  digitalWrite(LedPin,LOW); 
+  radio.printDetails();
+}
+int mode=0;
+String addr_w,pipe_r;
+int line=0;
+String data;
+String cmd_w0,cmd_w1,cmd_w2,cmd_w3,cmd_w4,cmd_w5,cmd_w6,cmd_w7;
+uint8_t cmd_wdi[8],cmd_rdi[8],cmd_status[8];
+bool rx=false;
+
+
+void leds()
+{
+digitalWrite(LedPin,HIGH); 
+delay(50);
+digitalWrite(LedPin,LOW);
+delay(50);
+digitalWrite(LedPin,HIGH); 
+delay(50);
+digitalWrite(LedPin,LOW);
+}
+
+void loop() {
+   if (Serial.available()>0) {
+       data = Serial.readStringUntil("\n");
+      
+       Serial.println(data);
+                if (data.startsWith("write")) {
+                  leds();
+                  addr_w=data.substring(6,7);
+                  cmd_w0=data.substring(8,11);
+                  cmd_w1=data.substring(12,15);
+                  cmd_w2=data.substring(16,19);
+                  cmd_w3=data.substring(20,23);
+                  cmd_w4=data.substring(24,27);
+                  cmd_w5=data.substring(28,31);
+                  cmd_w6=data.substring(32,35);
+                  cmd_w7=data.substring(36,39);
+                  radio.openWritingPipe (address[addr_w.toInt()]);
+                  radio.stopListening();
+                  cmd_wdi[0]=cmd_w0.toInt();
+                  cmd_wdi[1]=cmd_w1.toInt();
+                  cmd_wdi[2]=cmd_w2.toInt();
+                  cmd_wdi[3]=cmd_w3.toInt();
+                  cmd_wdi[4]=cmd_w4.toInt();
+                  cmd_wdi[5]=cmd_w5.toInt();
+                  cmd_wdi[6]=cmd_w6.toInt();
+                  cmd_wdi[7]=cmd_w7.toInt();
+                  cmd_wdi[8]=write_arg;
+                  radio.write(&cmd_wdi, sizeof(cmd_wdi));
+                  Serial.print("WRITE:");
+                  for(int i; i > 8; i++){
+                  Serial.print(cmd_wdi[i]);
+                  }
+                  Serial.print(" to addr:"); 
+                  Serial.println(addr_w);
+                  
+                  
+                
+   }
+   if (data.startsWith("state")) {
+    leds();
+    addr_w=data.substring(6,7);
+    Serial.print("state addr:"); 
+    Serial.println(addr_w);
+    radio.stopListening();
+    radio.openWritingPipe (master_address[0]);
+    cmd_status[0]=128;
+    cmd_status[1]=128;
+    cmd_status[2]=128;
+    cmd_status[3]=128;
+    cmd_status[4]=128;
+    cmd_status[5]=128;
+    cmd_status[6]=128;
+    cmd_status[7]=128;
+    cmd_status[8]=status_arg;
+    radio.write(&cmd_status, sizeof(cmd_status));
+    delay(50);
+    leds();
+    radio.openReadingPipe(uint8_t(1),address[addr_w.toInt()]);
+    radio.startListening();
+    Serial.print("RPD: ");
+    Serial.println(radio.testRPD());
+    while(! rx){
+                  if(radio.available(uint8_t(addr_w.toInt()))){
+                    radio.read(&cmd_rdi, sizeof(cmd_rdi));
+                    Serial.print("READ:");
+                    for(int i=0; i < 8; i++){
+                    Serial.print(cmd_rdi[i]);
+                    delay(100);
+                    Serial.print(".");
+                    delay(100);
+                    }
+                    Serial.print(" from pipe:");
+                    Serial.println(pipe_r);
+                    rx=true;
+                  }
+                  }
+                  radio.stopListening();
+                  rx=false;
+   }
+   
+                if (data.startsWith("read")) {
+                  leds();
+                  pipe_r=data.substring(5,6);
+                  radio.openReadingPipe(uint8_t(pipe_r.toInt()),address[pipe_r.toInt()]);
+                  radio.startListening();
+                  delay(100);
+                  Serial.print("RPD: ");
+                  Serial.println(radio.testRPD());
+                  
+                  while(! rx){
+                  if(radio.available(uint8_t(pipe_r.toInt()))){
+                    radio.read(&cmd_rdi, sizeof(cmd_rdi));
+                    Serial.print("READ:");
+                    for(int i=0; i < 7; i++){
+                    Serial.print(cmd_rdi[i]);
+                    delay(100);
+                    Serial.print(".");
+                    delay(100);
+                    }
+                    Serial.print(" from pipe:");
+                    Serial.println(pipe_r);
+                    rx=true;
+                  }
+                  }
+                  radio.stopListening();
+                  Serial.println("done");
+                  rx=false;
+                }             
+   }
+   
+}
